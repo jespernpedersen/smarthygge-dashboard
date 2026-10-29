@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "Smart Hygge new tab",
+  "version": "1.0",
+  "description": "Opens the Smart Hygge dashboard in every new tab.",
+  "chrome_url_overrides": { "newtab": "newtab.html" }
+}

@@ -1,0 +1,390 @@
+# Smart Hygge – helpers, scenes and automations behind the wall panel.
+# Install: copy this folder's contents into Home Assistant's /config (see docs/02-integrations.md),
+# make sure configuration.yaml has:
+#   homeassistant:
+#     packages: !include_dir_named packages
+# then Developer tools → YAML → Check configuration → Restart.
+#
+# Entity ids match dashboard/src/config/home.ts. When a real device gets a different id,
+# rename it in HA (Settings → Entities) rather than editing both places.
+
+input_boolean:
+  dishwasher_loaded:
+    name: Dishwasher loaded – run at cheapest time
+    icon: mdi:dishwasher
+  vacuum_auto_clean:
+    name: Vacuum when everyone is out
+    icon: mdi:robot-vacuum
+    initial: true
+
+input_datetime:
+  vacuum_last_clean:
+    name: Vacuum last clean
+    has_date: true
+    has_time: true
+  dishwasher_starts_at:
+    name: Dishwasher starts at
+    icon: mdi:clock-start
+    has_date: true
+    has_time: true
+  bedtime:
+    name: Bedtime
+    icon: mdi:bed-clock
+    has_date: false
+    has_time: true
+
+counter:
+  dishwasher_runs:
+    name: Dishwasher runs this week
+    icon: mdi:dishwasher
+  vacuum_runs:
+    name: Vacuum runs this week
+    icon: mdi:robot-vacuum
+
+template:
+  - sensor:
+      - name: Dishwasher planned start
+        unique_id: hp_dishwasher_planned_start
+        device_class: timestamp
+        icon: mdi:clock-start
+        availability: "{{ is_state('input_boolean.dishwasher_loaded', 'on') and has_value('sensor.energi_data_service') }}"
+        state: >
+          {% from 'smarthygge.jinja' import cheapest_window %}
+          {{ (cheapest_window('sensor.energi_data_service', 4, 7) | from_json).start }}
+        attributes:
+          price: >
+            {% from 'smarthygge.jinja' import cheapest_window %}
+            {{ (cheapest_window('sensor.energi_data_service', 4, 7) | from_json).avg }}
+
+  # Night table lamps: which part of the evening it is. Based on the research consensus for healthy light at home
+  # (Brown et al. 2022, PLOS Biology): warm, dim light from ~3 h before bed, and as dark as possible while sleeping.
+  #   day        sun up                                  → lamps kept off
+  #   evening    sunset → 3 h before bedtime             → 2700 K, 70 %  (cosy reading light)
+  #   wind_down  3 h → 1 h before bedtime                → 2200 K, 40 %  (warmest white, dimmer)
+  #   bedtime    1 h before → 30 min after bedtime       → 2200 K, 15 %
+  #   night      from 30 min after bedtime               → deep amber, 1 %  (night light, least melatonin impact)
+  #   dawn       the last 45 min before sunrise          → 2200 K, 25 %
+  - sensor:
+      - name: Bedside lamp phase
+        unique_id: hp_bedside_lamp_phase
+        icon: mdi:weather-night
+        state: >
+          {% if is_state('sun.sun', 'above_horizon') %}day
+          {% else %}
+            {% set rise = as_datetime(state_attr('sun.sun', 'next_rising')) %}
+            {% set bed = today_at(states('input_datetime.bedtime')) %}
+            {% set x = ((now() - bed).total_seconds() / 60) | int %}
+            {% set x = ((x + 720) % 1440) - 720 %}
+            {% if rise and (rise - now()).total_seconds() < 45 * 60 %}dawn
+            {% elif x < -180 %}evening
+            {% elif x < -60 %}wind_down
+            {% elif x < 30 %}bedtime
+            {% else %}night
+            {% endif %}
+          {% endif %}
+
+script:
+  dishwasher_start_now:
+    alias: Dishwasher – start Eco 50 now
+    icon: mdi:dishwasher
+    mode: single
+    sequence:
+      - if:
+          - condition: state
+            entity_id: switch.dishwasher_power
+            state: "off"
+        then:
+          - action: switch.turn_on
+            target: { entity_id: switch.dishwasher_power }
+          - delay: "00:00:05"
+      - action: home_connect.set_program_and_options
+        data:
+          device_id: ff44437453d2824c408105025bd26d4a
+          affects_to: active_program
+          program: dishcare_dishwasher_program_eco_50
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.dishwasher_loaded }
+      - action: counter.increment
+        target: { entity_id: counter.dishwasher_runs }
+
+scene:
+  - id: hp_cooking
+    name: Cooking
+    entities:
+      light.kitchen_ceiling: { state: "on", brightness: 255, color_temp_kelvin: 3500 }
+      light.kitchen_counter: { state: "on", brightness: 255, color_temp_kelvin: 3500 }
+      light.dining_pendant: { state: "on", brightness: 153, color_temp_kelvin: 2700 }
+  - id: hp_dinner
+    name: Dinner
+    entities:
+      light.kitchen_ceiling: { state: "on", brightness: 46, color_temp_kelvin: 2400 }
+      light.kitchen_counter: { state: "on", brightness: 89, color_temp_kelvin: 2400 }
+      light.dining_pendant: { state: "on", brightness: 204, color_temp_kelvin: 2200 }
+      light.living_room_floor_lamp: { state: "on", brightness: 115, color_temp_kelvin: 2200 }
+      light.living_room_ceiling: "off"
+  - id: hp_movie
+    name: Movie
+    entities:
+      light.living_room_ceiling: "off"
+      light.living_room_floor_lamp: { state: "on", brightness: 46, color_temp_kelvin: 2200 }
+      light.dining_pendant: "off"
+      light.kitchen_ceiling: "off"
+      light.kitchen_counter: { state: "on", brightness: 38, color_temp_kelvin: 2200 }
+      cover.living_room_blind: { state: closed, current_position: 0 }
+      media_player.living_room_tv: "on"
+  - id: hp_morning
+    name: Morning
+    entities:
+      light.kitchen_ceiling: { state: "on", brightness: 179, color_temp_kelvin: 3800 }
+      light.kitchen_counter: { state: "on", brightness: 204, color_temp_kelvin: 3800 }
+      light.landing_ceiling: { state: "on", brightness: 128, color_temp_kelvin: 3000 }
+      cover.living_room_blind: { state: open, current_position: 100 }
+      cover.kitchen_blind: { state: open, current_position: 100 }
+  - id: hp_good_night
+    name: Good night
+    entities:
+      light.living_room_ceiling: "off"
+      light.living_room_floor_lamp: "off"
+      light.dining_pendant: "off"
+      light.kitchen_ceiling: "off"
+      light.kitchen_counter: "off"
+      light.entrance_ceiling: "off"
+      light.bedroom_ceiling: "off"
+      light.bedside_lamp_left: "off"
+      light.bedside_lamp_right: "off"
+      light.office_ceiling: "off"
+      light.office_desk_lamp: "off"
+      light.bathroom_mirror: "off"
+      light.landing_ceiling: { state: "on", brightness: 20, color_temp_kelvin: 2200 }
+      cover.living_room_blind: { state: closed, current_position: 0 }
+      cover.kitchen_blind: { state: closed, current_position: 0 }
+      media_player.living_room_tv: "off"
+  - id: hp_all_off
+    name: All off
+    entities:
+      light.living_room_ceiling: "off"
+      light.living_room_floor_lamp: "off"
+      light.dining_pendant: "off"
+      light.kitchen_ceiling: "off"
+      light.kitchen_counter: "off"
+      light.entrance_ceiling: "off"
+      light.bedroom_ceiling: "off"
+      light.bedside_lamp_left: "off"
+      light.bedside_lamp_right: "off"
+      light.office_ceiling: "off"
+      light.office_desk_lamp: "off"
+      light.bathroom_mirror: "off"
+      light.landing_ceiling: "off"
+      media_player.living_room_tv: "off"
+
+automation:
+  # ---------- dishwasher (via Home Connect) ----------
+  # "Run at cheapest time" on + door closed + Remote Start allowed → start Eco 50 right away with a delay, so the
+  # dishwasher itself waits for the cheapest 4 hours before 07:00 (Eco 50 takes 3 h 35 min). Works even if HA is down later.
+  - id: hp_dishwasher_cheapest_start
+    alias: Dishwasher – start at the cheapest time
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.dishwasher_loaded
+        to: "on"
+      - trigger: state
+        entity_id: sensor.dishwasher_door
+        to: closed
+      - trigger: state
+        entity_id: binary_sensor.dishwasher_remote_start
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.dishwasher_loaded
+        state: "on"
+      - condition: state
+        entity_id: sensor.dishwasher_door
+        state: closed
+      - condition: state
+        entity_id: binary_sensor.dishwasher_remote_start
+        state: "on"
+      - condition: state
+        entity_id: sensor.dishwasher_operation_state
+        state: [ready, inactive]
+    actions:
+      - wait_template: "{{ has_value('sensor.dishwasher_planned_start') }}"
+        timeout: "00:00:10"
+        continue_on_timeout: false
+      - variables:
+          starts: "{{ states('sensor.dishwasher_planned_start') }}"
+          delay_s: "{{ [0, (as_timestamp(starts) - as_timestamp(now())) | int] | max }}"
+      - if:
+          - condition: state
+            entity_id: switch.dishwasher_power
+            state: "off"
+        then:
+          - action: switch.turn_on
+            target: { entity_id: switch.dishwasher_power }
+          - delay: "00:00:05"
+      - action: home_connect.set_program_and_options
+        data:
+          device_id: ff44437453d2824c408105025bd26d4a
+          affects_to: active_program
+          program: dishcare_dishwasher_program_eco_50
+          b_s_h_common_option_start_in_relative: "{{ delay_s }}"
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.dishwasher_starts_at }
+        data:
+          timestamp: "{{ as_timestamp(now()) + delay_s }}"
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.dishwasher_loaded }
+      - action: counter.increment
+        target: { entity_id: counter.dishwasher_runs }
+
+  - id: hp_dishwasher_finished
+    alias: Dishwasher – tell us when it's done
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.dishwasher_operation_state
+        to: finished
+    actions:
+      - action: notify.notify
+        data:
+          title: Dishwasher finished
+          message: Clean dishes – ready to empty.
+
+  # ---------- robot vacuum: clean once a day when the house is empty ----------
+  - id: hp_vacuum_when_out
+    alias: Vacuum – clean when everyone is out
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: zone.home
+        below: 1
+        for: "00:10:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.vacuum_auto_clean
+        state: "on"
+      - condition: time
+        after: "09:00:00"
+        before: "18:00:00"
+      - condition: state
+        entity_id: vacuum.robot_vacuum
+        state: docked
+      - condition: template
+        value_template: "{{ as_timestamp(states('input_datetime.vacuum_last_clean'), 0) < as_timestamp(today_at()) }}"
+    actions:
+      - action: vacuum.start
+        target: { entity_id: vacuum.robot_vacuum }
+
+  - id: hp_vacuum_back_home
+    alias: Vacuum – go home when someone arrives
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: zone.home
+        above: 0
+    conditions:
+      - condition: state
+        entity_id: vacuum.robot_vacuum
+        state: cleaning
+    actions:
+      - action: vacuum.return_to_base
+        target: { entity_id: vacuum.robot_vacuum }
+
+  - id: hp_vacuum_finished
+    alias: Vacuum – log a finished clean
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: vacuum.robot_vacuum
+        from: cleaning
+        to: [returning, docked]
+    actions:
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.vacuum_last_clean }
+        data:
+          timestamp: "{{ now().timestamp() }}"
+      - action: counter.increment
+        target: { entity_id: counter.vacuum_runs }
+
+  # ---------- blinds ----------
+  - id: hp_blinds_sunset
+    alias: Blinds – close at sunset
+    mode: single
+    triggers:
+      - trigger: sun
+        event: sunset
+    actions:
+      - action: cover.close_cover
+        target:
+          entity_id: [cover.living_room_blind, cover.kitchen_blind]
+
+  # ---------- night table lamps ----------
+  # Never switched on automatically. Off whenever the sun is up; while on in the dark they follow the evening phases.
+  - id: hp_bedside_lamps_daylight_off
+    alias: Night table lamps – off in daylight
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: sun.sun
+        to: above_horizon
+      - trigger: state
+        entity_id: [light.bedside_lamp_left, light.bedside_lamp_right]
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: sun.sun
+        state: above_horizon
+    actions:
+      - action: light.turn_off
+        target:
+          entity_id: >
+            {{ ['light.bedside_lamp_left', 'light.bedside_lamp_right'] | select('is_state', 'on') | list }}
+
+  - id: hp_bedside_lamps_follow_evening
+    alias: Night table lamps – follow the evening
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: [light.bedside_lamp_left, light.bedside_lamp_right]
+        from: "off"
+        to: "on"
+      - trigger: state
+        entity_id: sensor.bedside_lamp_phase
+    conditions:
+      - condition: not
+        conditions:
+          - condition: state
+            entity_id: sensor.bedside_lamp_phase
+            state: day
+    variables:
+      phase: "{{ states('sensor.bedside_lamp_phase') }}"
+      settings:
+        evening: { color_temp_kelvin: 2700, brightness_pct: 70 }
+        wind_down: { color_temp_kelvin: 2200, brightness_pct: 40 }
+        bedtime: { color_temp_kelvin: 2200, brightness_pct: 15 }
+        night: { rgb_color: [255, 60, 0], brightness_pct: 1 }
+        dawn: { color_temp_kelvin: 2200, brightness_pct: 25 }
+      lamps: >
+        {% set all = ['light.bedside_lamp_left', 'light.bedside_lamp_right'] %}
+        {{ [trigger.entity_id] if trigger.entity_id in all else all | select('is_state', 'on') | list }}
+    actions:
+      - condition: template
+        value_template: "{{ lamps | count > 0 and phase in settings }}"
+      - action: light.turn_on
+        target:
+          entity_id: "{{ lamps }}"
+        data: "{{ settings[phase] }}"
+
+  # ---------- weekly stats ----------
+  - id: hp_reset_weekly_counters
+    alias: Stats – reset weekly counters on Monday
+    mode: single
+    triggers:
+      - trigger: time
+        at: "00:00:00"
+    conditions:
+      - condition: time
+        weekday: mon
+    actions:
+      - action: counter.reset
+        target: { entity_id: [counter.dishwasher_runs, counter.vacuum_runs] }

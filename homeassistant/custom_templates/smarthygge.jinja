@@ -1,0 +1,22 @@
+{#- Cheapest window for a run of `run_hours`, finishing before `done_by` o'clock (next occurrence).
+    Works with hourly and 15-minute Energi Data Service prices. Returns JSON: {"start": iso|null, "avg": float|null}.
+    Same logic as dashboard/src/data/logic.ts, so the panel and the automation agree. -#}
+{%- macro cheapest_window(price_sensor, run_hours=3, done_by=7) -%}
+  {%- set prices = (state_attr(price_sensor, 'raw_today') or []) + (state_attr(price_sensor, 'raw_tomorrow') or []) -%}
+  {%- set first = (now() + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0) -%}
+  {%- set dl = now().replace(hour=done_by, minute=0, second=0, microsecond=0) -%}
+  {%- set dl = dl + timedelta(days=1) if dl <= now() else dl -%}
+  {%- set ns = namespace(best=none, avg=999) -%}
+  {%- for e in prices -%}
+    {%- set s = as_datetime(e.hour) if e.hour is string else e.hour -%}
+    {%- if s.minute == 0 and s >= first and s + timedelta(hours=run_hours) <= dl -%}
+      {%- set w = namespace(sum=0, n=0) -%}
+      {%- for f in prices -%}
+        {%- set t = as_datetime(f.hour) if f.hour is string else f.hour -%}
+        {%- if t >= s and t < s + timedelta(hours=run_hours) -%}{%- set w.sum = w.sum + f.price -%}{%- set w.n = w.n + 1 -%}{%- endif -%}
+      {%- endfor -%}
+      {%- if w.n and (w.sum / w.n) < ns.avg -%}{%- set ns.best = s -%}{%- set ns.avg = w.sum / w.n -%}{%- endif -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {{- {'start': ns.best.isoformat() if ns.best else none, 'avg': (ns.avg | round(2)) if ns.best else none} | to_json -}}
+{%- endmacro -%}

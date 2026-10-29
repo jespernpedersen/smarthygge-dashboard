@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#1b1c1f">
+  <title>Smart Hygge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,300,0..1,0&display=block">
+</head>
+<body>
+<div class="device">
+<div class="ui" id="ui">
+  <aside class="side">
+    <div class="clock" id="clock">--:--</div>
+    <div class="date" id="date"></div>
+    <nav class="menu" id="menu" aria-label="Views"></nav>
+    <div class="np" id="np" hidden><div><b id="npApp"></b><span class="s" data-i18n="Living room TV">Living room TV</span></div><span class="ms">tv</span></div>
+    <div id="todaySlot"></div>
+    <div class="spacer"></div>
+    <div class="lbl" data-i18n="People at home">People at home</div>
+    <div class="people" id="people"></div>
+    <div class="wx" id="wx"></div>
+    <div class="conn" id="conn"><i></i><span>Demo data</span></div>
+    <svg class="wave" id="wave" viewBox="0 0 300 58" preserveAspectRatio="none" aria-hidden="true"></svg>
+  </aside>
+
+  <div class="panelwrap" id="panelwrap" hidden><div class="panel" id="panel"></div></div>
+
+  <main class="stage" id="stage">
+    <canvas id="gl" aria-label="3D floorplan of the house"></canvas>
+    <svg id="outlines"></svg>
+    <div id="marks"></div>
+    <div class="floors"><div class="addr">Smart Hygge</div><div class="seg" id="floors"><button data-f="ground" aria-pressed="true" data-i18n="Ground floor">Ground floor</button><button data-f="up" aria-pressed="false" data-i18n="Upstairs">Upstairs</button></div></div>
+    <div class="chips" id="chips"></div>
+    <section class="glass" id="today" aria-label="Today"></section>
+    <div class="loading" id="loading" data-i18n="Building the house…">Building the house…</div>
+    <div class="pop" id="pop" hidden>
+      <div class="h"><span class="ms" id="popIcon">lightbulb</span><div><b id="popName">Light</b><span id="popSub">On</span></div><button class="sw" id="popSw" aria-label="Turn light on or off"></button></div>
+      <label for="popBri"><span data-i18n="Brightness">Brightness</span><input type="range" class="pill" id="popBri" min="1" max="100" step="1"></label>
+      <label for="popK"><span data-i18n="Warmth">Warmth</span><input type="range" class="pill kel" id="popK" min="2200" max="4000" step="100"></label>
+    </div>
+  </main>
+</div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
